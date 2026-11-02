@@ -2237,8 +2237,9 @@ const smsSetStatus=(id,st)=>{try{Store.upd('sms',id,{status:st})}catch(e){}try{d
 function smsCopy(text,msg){const done=()=>toast(msg||'کپی شد');const fb=()=>{const x=document.createElement('textarea');x.value=text;x.style.cssText='position:fixed;opacity:0;top:0';document.body.append(x);x.select();try{document.execCommand('copy');done()}catch(e){toast('کپی نشد')}x.remove()};try{if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(text).then(done,fb);else fb()}catch(e){fb()}}
 
 const SMSX={waiters:{},pendingSingle:null,bulk:null,running:false,stop:false,ui:null,hooks:new Set()};
-const smsNat=()=>window.AndroidSms||window.Android||null;
+const smsNat=()=>window.AndroidSms||window.Android||(window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.AndroidSms)||null;
 const smsHas=f=>{const n=smsNat();return !!(n&&typeof n[f]==='function')};
+setTimeout(function smsBridgeWatch(){try{if(window.SMSBridgeUIRefresh)window.SMSBridgeUIRefresh();else if(typeof App!=='undefined'&&App.refresh){/* bridge may appear late */}}catch(e){}},800);
 const SMSBridge={
  isNative(){return smsHas('sendSms')},
  canAutoSend(){return smsHas('sendBulkSmsFast')},
