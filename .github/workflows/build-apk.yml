@@ -46,7 +46,9 @@ jobs:
           sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Install npm deps
-        run: npm install
+        run: |
+          npm install
+          npm install --no-save sharp
 
       - name: Prepare web assets
         run: |
@@ -62,6 +64,9 @@ jobs:
 
       - name: Sync Capacitor
         run: npx cap sync android
+
+      - name: Inject icons + SMS bridge
+        run: node scripts/setup-android.js
 
       - name: Build Debug APK
         working-directory: android
