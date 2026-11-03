@@ -2964,13 +2964,26 @@ const smsFill=(r,t,real)=>{
   return raw.replace(/\{gender\}/g,gender).replace(/\{name\}/g,name).replace(/\{fullname\}/g,fullname||name||'همراه گرامی').replace(/\{date\}/g,fa(r.date||T().key)).replace(/\{time\}/g,fa(r.time||'')).replace(/\{amount\}/g,money(r.amount||0));
 };
 const smsParts=t=>{const n=[...String(t||'')].length,u=/[^\x00-\x7F]/.test(t||''),one=u?70:160,many=u?67:153;return n<=one?1:Math.ceil(n/many)};
-const smsLog=(r,phone,text,status)=>Store.add('sms',{to:r.name,phone,text,date:T().key,time:T().time,status});
-const smsSetStatus=(id,st)=>{try{Store.upd('sms',id,{status:st})}catch(e){}try{document.querySelectorAll('[data-sms-st="'+id+'"]').forEach(x=>x.textContent=SMS_STATUS[st]||'')}catch(e){}};
+const smsLog=(r,phone,text,status)=>{const m=Store.add('sms',{to:r.name,phone,text,date:T().key,time:T().time,status,ts:Date.now()});try{window.__smsHistRepaint&&window.__smsHistRepaint()}catch(e){}return m};
+const smsSetStatus=(id,st)=>{try{Store.upd('sms',id,{status:st})}catch(e){}try{document.querySelectorAll('[data-sms-st="'+id+'"]').forEach(x=>x.textContent=SMS_STATUS[st]||'')}catch(e){}try{window.__smsHistRepaint&&window.__smsHistRepaint()}catch(e){}};
 function smsCopy(text,msg){const done=()=>toast(msg||'کپی شد');const fb=()=>{const x=document.createElement('textarea');x.value=text;x.style.cssText='position:fixed;opacity:0;top:0';document.body.append(x);x.select();try{document.execCommand('copy');done()}catch(e){toast('کپی نشد')}x.remove()};try{if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(text).then(done,fb);else fb()}catch(e){fb()}}
 
 const SMSX={waiters:{},pendingSingle:null,bulk:null,running:false,stop:false,ui:null,hooks:new Set()};
 const smsNat=()=>window.AndroidSms||window.Android||null;
 const smsHas=f=>{const n=smsNat();return !!(n&&typeof n[f]==='function')};
+
+/* SMS-V9: انتخاب سیم‌کارت و هزینه */
+const smsSim=()=>{try{return Store.cfg('smsSim',null)}catch(e){return null}};
+const smsSimOk=s=>!!(s&&(s.slot===0||s.slot===1||s.slot===2)&&+s.price>0);
+const smsSimName=s=>s?((s.label&&String(s.label).trim())||('سیم‌کارت '+(Number(s.slot)+1))):'';
+function smsNativeSend(phone,text){const s=smsSim();if(smsSimOk(s)&&smsHas('sendSmsSim'))return smsNat().sendSmsSim(phone,text,Number(s.slot));return smsNat().sendSms(phone,text)}
+function smsNativeBulk(json,msg){const s=smsSim();if(smsSimOk(s)&&smsHas('sendBulkSmsFastSim'))return smsNat().sendBulkSmsFastSim(json,msg,Number(s.slot));return smsNat().sendBulkSmsFast(json,msg)}
+function smsCostSheet(info,onYes){
+ const s=smsSim(),ok=smsSimOk(s);
+ if(!ok){sheet('سیم‌کارت هزینه مشخص نیست','<p>پیش از ارسال خودکار باید در «تنظیمات پیامک» مشخص کنید هزینهٔ پیامک‌ها از کدام سیم‌کارت و با چه تعرفه‌ای محاسبه شود.</p><button type="button" class="btn big" id="gs">رفتن به تنظیمات پیامک</button><button type="button" class="btn sec big" id="gc">انصراف</button>',(b,c)=>{$('#gs',b).onclick=()=>{c();smsSettings()};$('#gc',b).onclick=c});return}
+ const per=+s.price,total=info.totalParts,cost=total*per,pin=smsHas('sendSmsSim')&&smsHas('sendBulkSmsFastSim');
+ const row=(k,v)=>`<div class="row" style="padding:6px 0"><span class="mut g">${k}</span><b>${v}</b></div>`;
+ sheet('هزینهٔ ارسال را تأیید کنید',`<div class="card">${row('تعداد گیرندگان',fa(info.count)+' نفر')}${row('مجموع بخش‌های پیامک',fa(total)+' بخش')}${row('سیم‌کارت',esc(smsSimName(s)))}${row('تعرفهٔ هر بخش',money(per))}<div class="row" style="padding:10px 0 2px;border-top:1px solid var(--line);margin-top:6px"><span class="g"><b>هزینهٔ تخمینی ارسال</b></span><b style="font-size:19px">${money(cost)}</b></div></div>${pin?'':'<div class="warn" style="margin:8px 0">این نسخهٔ APK انتخاب سیم‌کارت را پشتیبانی نمی‌کند؛ ارسال با سیم‌کارت پیش‌فرض گوشی انجام می‌شود و ممکن است هزینه از سیم دیگری کسر شود.</div>'}<div class="mut">با تأیید، ارسال شروع می‌شود؛ بدون تأیید هیچ پیامکی ارسال نمی‌شود.</div><button type="button" class="btn big" id="cy">✅ تأیید و ارسال</button><button type="button" class="btn sec big" id="cn">انصراف</button>`,(b,c)=>{$('#cy',b).onclick=()=>{c();onYes()};$('#cn',b).onclick=c})}
 const SMSBridge={
  isNative(){return smsHas('sendSms')},
  canAutoSend(){return smsHas('sendBulkSmsFast')},
@@ -2984,7 +2997,7 @@ const SMSBridge={
   if(native&&!this.hasPermission()&&smsHas('requestSmsPermission')&&SMSX.pendingSingle){toast('ابتدا مجوز پیامک را تأیید کنید');return false}
   const log=smsLog(rec,phone,text,native?'pending':'opened');
   if(native){
-   if(this.hasPermission()){SMSX.waiters[phone]={id:log.id};try{smsNat().sendSms(phone,text);return true}catch(e){delete SMSX.waiters[phone];smsSetStatus(log.id,'opened')}}
+   if(this.hasPermission()){SMSX.waiters[phone]={id:log.id};try{smsNativeSend(phone,text);return true}catch(e){delete SMSX.waiters[phone];smsSetStatus(log.id,'opened')}}
    else if(smsHas('requestSmsPermission')){SMSX.pendingSingle={phone,text,id:log.id};smsNat().requestSmsPermission();return true}
    else smsSetStatus(log.id,'opened')
   }
@@ -2992,6 +3005,10 @@ const SMSBridge={
  }
 };
 window.SMSBridge=SMSBridge;
+function smsSweep(){const now=Date.now(),live=SMSX.running,wt=Object.keys(SMSX.waiters).length;
+ try{Store.all('sms').forEach(m=>{if(m.status!=='pending')return;const age=now-(m.ts||0);if(m.ts?age>(live?600000:60000):(!live&&!wt))smsSetStatus(m.id,'unknown')})}catch(e){}
+ if(SMSX.running&&SMSX.runStart&&now-SMSX.runStart>900000){SMSX.running=false;SMSX.bulk=null}}
+setInterval(smsSweep,5000);setTimeout(smsSweep,1500);
 const smsOnPerm=fn=>SMSX.hooks.add(fn);
 
 /* ─── callbackهایی که از جاوا (SmsBridge) صدا زده می‌شوند ─── */
@@ -2999,7 +3016,7 @@ window.onSmsPermission=function(status){
  const ps=SMSX.pendingSingle;SMSX.pendingSingle=null;
  if(status==='granted'){
   toast('مجوز پیامک داده شد');
-  if(ps){SMSX.waiters[ps.phone]={id:ps.id};try{smsNat().sendSms(ps.phone,ps.text)}catch(e){delete SMSX.waiters[ps.phone];smsSetStatus(ps.id,'opened');SMSBridge.openApp(ps.phone,ps.text)}}
+  if(ps){SMSX.waiters[ps.phone]={id:ps.id};try{smsNativeSend(ps.phone,ps.text)}catch(e){delete SMSX.waiters[ps.phone];smsSetStatus(ps.id,'opened');SMSBridge.openApp(ps.phone,ps.text)}}
  }else{
   toast('مجوز پیامک رد شد');
   if(ps){smsSetStatus(ps.id,'opened');SMSBridge.openApp(ps.phone,ps.text)}
@@ -3007,18 +3024,20 @@ window.onSmsPermission=function(status){
  SMSX.hooks.forEach(f=>{try{if(f()===false)SMSX.hooks.delete(f)}catch(e){SMSX.hooks.delete(f)}});
 };
 window.onSmsBulkStart=function(d){SMSX.ui&&SMSX.ui.start&&SMSX.ui.start((d&&d.total)||0)};
-window.onSmsBulkProgress=function(d){SMSX.ui&&SMSX.ui.progress&&SMSX.ui.progress(d||{})};
+window.onSmsBulkProgress=function(d){d=d||{};SMSX.ui&&SMSX.ui.progress&&SMSX.ui.progress(d);if(SMSX.bulk&&d.total&&d.current>=d.total){clearTimeout(SMSX.finT);SMSX.finT=setTimeout(()=>{if(SMSX.bulk)window.onSmsBulkComplete({ok:true,sent:d.total-(d.failed||0),failed:d.failed||0})},4000)}};
 window.onSmsBulkComplete=function(d){
- d=d||{};const b=SMSX.bulk;SMSX.bulk=null;SMSX.running=false;
+ d=d||{};clearTimeout(SMSX.finT);const b=SMSX.bulk;SMSX.bulk=null;SMSX.running=false;
  if(b)b.ids.forEach(id=>smsSetStatus(id,d.ok?((d.failed||0)>0?'check':'sent'):'failed'));
  SMSX.ui&&SMSX.ui.done&&SMSX.ui.done(d);
 };
 window.onSmsResult=function(d){
- d=d||{};let w=SMSX.waiters[d.phone];
- if(w)delete SMSX.waiters[d.phone];
- else if(!d.phone){const k=Object.keys(SMSX.waiters)[0];if(k){w=SMSX.waiters[k];delete SMSX.waiters[k]}}
+ d=d||{};const ph=d.phone?smsNorm(d.phone):'';let wk=null,w=null;
+ if(ph&&SMSX.waiters[ph])wk=ph;else if(d.phone&&SMSX.waiters[d.phone])wk=d.phone;
+ else if(ph)wk=Object.keys(SMSX.waiters).find(k=>smsNorm(k).slice(-10)===ph.slice(-10))||null;
+ else wk=Object.keys(SMSX.waiters)[0]||null;
+ if(wk){w=SMSX.waiters[wk];delete SMSX.waiters[wk]}
  if(w){smsSetStatus(w.id,d.ok?'sent':'failed');w.res&&w.res(!!d.ok)}
- else if(d.phone){const m=Store.all('sms').find(x=>x.phone===d.phone&&(x.status==='unknown'||x.status==='pending'));if(m)smsSetStatus(m.id,d.ok?'sent':'failed')}
+ else{const pend=Store.all('sms').filter(x=>x.status==='pending'||x.status==='unknown');const m=ph?pend.find(x=>smsNorm(x.phone).slice(-10)===ph.slice(-10)):pend[pend.length-1];if(m)smsSetStatus(m.id,d.ok?'sent':'failed')}
  if(!SMSX.running)toast(d.ok?'پیامک ارسال شد ✅':'ارسال ناموفق: '+(SMS_ERR[d.error]||d.error||'خطا'));
 };
 
@@ -3032,7 +3051,7 @@ async function smsRunPersonal(list,fillOne,ui){
   const ok=await new Promise(res=>{
    const to=setTimeout(()=>{const w=SMSX.waiters[r.phone];if(w&&w.id===log.id)delete SMSX.waiters[r.phone];res(null)},25000);
    SMSX.waiters[r.phone]={id:log.id,res:v=>{clearTimeout(to);res(v)}};
-   try{smsNat().sendSms(r.phone,text)}catch(e){clearTimeout(to);delete SMSX.waiters[r.phone];smsSetStatus(log.id,'failed');res(false)}
+   try{smsNativeSend(r.phone,text)}catch(e){clearTimeout(to);delete SMSX.waiters[r.phone];smsSetStatus(log.id,'failed');res(false)}
   });
   if(ok===true)sent++;else if(ok===false)failed++;else{unk++;smsSetStatus(log.id,'unknown')}
   ui.progress&&ui.progress({current:i+1,total:list.length,failed:failed+unk});
@@ -3045,7 +3064,7 @@ async function smsRunPersonal(list,fillOne,ui){
 /* ─── نوار وضعیت ارسال خودکار (مجوز / پشتیبانی) ─── */
 function smsPaintBanner(box,ctx){
  const auto=SMSBridge.isNative(),perm=SMSBridge.hasPermission();let cls='warn',html;
- if(auto&&perm){cls='ok';html='✅ ارسال خودکار فعال است؛ پیامک‌ها مستقیم از سیم‌کارت گوشی ارسال می‌شوند.'}
+ if(auto&&perm){cls='ok';{const _s=smsSim();html='✅ ارسال خودکار فعال است'+(smsSimOk(_s)?' · هزینه از سیم‌کارت <b>'+esc(smsSimName(_s))+'</b> محاسبه می‌شود.':'.<br>⚠️ سیم‌کارت هزینه هنوز در «تنظیمات پیامک» انتخاب نشده است؛ بدون آن ارسال خودکار انجام نمی‌شود.');if(!smsSimOk(_s))cls='warn'}}
  else if(auto)html='⚠️ مجوز ارسال پیامک داده نشده است.<br><button type="button" class="btn sm" data-smsx-perm>🔐 اجازهٔ ارسال پیامک</button>';
  else html=ctx==='single'?'📲 در این نسخه پیامک مستقیم ارسال نمی‌شود؛ برنامهٔ پیامک گوشی با متن آماده باز می‌شود و باید دکمهٔ ارسال را همان‌جا بزنید.':'📲 ارسال خودکار فقط در اپلیکیشن اندروید (APK) فعال است. در این نسخه پیامک هر نفر جداگانه در برنامهٔ پیامک گوشی باز می‌شود.';
  box.innerHTML=`<div class="smsx-note ${cls}">${html}</div>`;
@@ -3060,7 +3079,7 @@ function smsPreviewSheet(rec,text,opts){
   const ta=$('#smsxText',b),meta=$('#smsxMeta',b);
   const paint=()=>{meta.textContent=`${fa([...ta.value].length)} نویسه · ${fa(smsParts(ta.value))} بخش پیامک`};ta.oninput=paint;paint();
   smsPaintBanner($('#smsxBanner',b),'single');
-  $('#smsxSend',b).onclick=()=>{const t=ta.value.trim();if(!t)return toast('متن پیام خالی است');if(SMSBridge.sendOne({...rec,phone},t)){opts.onDone&&opts.onDone();close()}};
+  $('#smsxSend',b).onclick=()=>{const t=ta.value.trim();if(!t)return toast('متن پیام خالی است');const go=()=>{if(SMSBridge.sendOne({...rec,phone},t)){opts.onDone&&opts.onDone();close()}};if(SMSBridge.isNative()&&SMSBridge.hasPermission())smsCostSheet({count:1,totalParts:smsParts(t)},go);else go()};
   $('#smsxCopy',b).onclick=()=>{const t=ta.value.trim();if(!t)return toast('متن پیام خالی است');smsCopy(t,'متن کپی شد');close()};
   $('#smsxCancel',b).onclick=close;
  });
@@ -3102,13 +3121,13 @@ function smsBulkSheet(recs,text,group,opts){
    const au=$('#smsxAuto',btns);
    if(au)au.onclick=()=>{
     const t=needText();if(!t)return;if(SMSX.running)return toast('ارسال قبلی هنوز تمام نشده');
-    const per=pers.checked,list=target(t,per),total=smsParts(smsFill(list[0],t,per))*list.length;
-    confirmSheet(`ارسال پیامک به ${fa(list.length)} نفر؟ حدود ${fa(total)} بخش پیامک ارسال می‌شود و هزینه طبق تعرفهٔ سیم‌کارت شما حساب می‌شود.`,()=>{
+    const per=pers.checked,list=target(t,per),total=list.reduce((z,r)=>z+smsParts(smsFill(r,t,per)),0);
+    smsCostSheet({count:list.length,totalParts:total},()=>{
      au.disabled=true;SMSX.ui=ui;
      if(per){stopBtn.hidden=false;stopBtn.onclick=()=>{SMSX.stop=true;toast('بعد از پیام جاری متوقف می‌شود')};smsRunPersonal(list,r=>smsFill(r,t,true),ui)}
      else{
-      const msg=smsFill(list[0],t,false);SMSX.running=true;SMSX.bulk={ids:list.map(r=>smsLog(r,r.phone,msg,'pending').id)};ui.start(list.length);
-      try{smsNat().sendBulkSmsFast(JSON.stringify(list.map(r=>r.phone)),msg)}catch(e){SMSX.running=false;SMSX.bulk.ids.forEach(id=>smsSetStatus(id,'failed'));SMSX.bulk=null;prog.hidden=true;au.disabled=false;toast('خطا در ارسال — از حالت یکی‌یکی استفاده کنید')}
+      const msg=smsFill(list[0],t,false);SMSX.running=true;SMSX.runStart=Date.now();SMSX.bulk={ids:list.map(r=>smsLog(r,r.phone,msg,'pending').id)};ui.start(list.length);
+      try{smsNativeBulk(JSON.stringify(list.map(r=>r.phone)),msg)}catch(e){SMSX.running=false;SMSX.bulk.ids.forEach(id=>smsSetStatus(id,'failed'));SMSX.bulk=null;prog.hidden=true;au.disabled=false;toast('خطا در ارسال — از حالت یکی‌یکی استفاده کنید')}
      }
     });
    };
@@ -3129,11 +3148,15 @@ function smsSend(rs,text,group,opts){rs=(rs||[]).filter(r=>r&&r.phone&&smsValid(
  if(rs.length===1&&!group)return smsPreviewSheet(rs[0],text,opts);
  return smsBulkSheet(rs,text,group,opts)}
 function workshopReminderPanel(el){const today=T().key,groups=Store.all('groups'),events=Store.all('events').filter(e=>{if(!['workshop','program'].includes(e.type)||e.smsPreparedAt)return false;const g=groups.find(x=>String(x.id)===String(e.groupId)),routine=e.smsRoutine||g?.smsConfig?.routine||'session_day';if(routine==='manual')return false;const dueDate=routine==='day_before'?addDaysJalali(e.date,-1):e.date;return dueDate===today});if(!events.length)return;el.insertAdjacentHTML('afterbegin',`<div class="card"><b>پیام‌های برنامه‌ریزی‌شدهٔ گروه‌ها و کارگاه‌ها</b>${events.map(e=>`<div class="row" style="padding:7px 0"><div class="g"><b>${esc(e.title)}</b><div class="mut">${fa(e.date)} · ${fa(e.time)} · ${fa((e.members||[]).length)} عضو · ${therapistChip(e.tid)}</div></div><button type="button" class="btn sm" data-workshop-sms="${e.id}">آماده‌سازی پیام گروهی</button></div>`).join('')}<div class="mut">گیرندگان فقط اعضای ذخیره‌شدهٔ همین رویداد هستند؛ پیش از ارسال، متن را می‌بینید و می‌توانید ویرایش کنید.</div></div>`);$$('[data-workshop-sms]',el).forEach(btn=>btn.onclick=()=>{const ev=Store.all('events').find(x=>String(x.id)===String(btn.dataset.workshopSms));if(!ev)return;const members=Store.all('people').filter(p=>(ev.members||[]).map(String).includes(String(p.id))&&p.phone).map(p=>({id:p.id,name:p.name,phone:p.phone,gender:p.gender,date:ev.date,time:ev.time})),group=Store.all('groups').find(g=>String(g.id)===String(ev.groupId));if(!members.length)return toast('برای اعضای این کارگاه شمارهٔ تلفن ثبت نشده است.');const text=group?.smsConfig?.text||`یادآوری ${group?.kind==='کارگاه'?'کارگاه':'گروه'} «${group?.name||ev.title}» در تاریخ {date} ساعت {time} برگزار می‌شود.`;smsSend(members,text,true,{onDone:()=>{Store.upd('events',ev.id,{smsPreparedAt:Date.now()});btn.disabled=true;btn.textContent='آماده شد'}})})}
-function smsSettings(){const tpl=Store.cfg('tpl',DEF_TPL);
- sheet('تنظیمات پیامک — متن‌های پیش‌فرض',tpl.map((t,i)=>`<label>نام الگو</label><input data-n="${i}" value="${esc(t.name)}"><label>متن (می‌توانی از {name} {date} {time} {amount} استفاده کنی)</label><textarea data-x="${i}">${esc(t.text)}</textarea>`).join('')+'<div class="row"><button class="btn g" id="sv">ذخیره</button><button class="btn sec g" id="ad">+ الگوی جدید</button></div>',(b,c)=>{
+function smsSettings(){const tpl=Store.cfg('tpl',DEF_TPL),sim=smsSim();
+ let sims=[];try{if(smsHas('getSimCards'))sims=JSON.parse(smsNat().getSimCards()||'[]')}catch(e){}
+ if(!sims.length)sims=[{slot:0,name:'سیم‌کارت ۱'},{slot:1,name:'سیم‌کارت ۲'}];
+ const simHtml=`<div class="card"><b>سیم‌کارت و تعرفهٔ ارسال</b><div class="mut">برای هر پیامک تکی یا گروهی، هزینه از همین سیم‌کارت و با همین تعرفه محاسبه می‌شود و پیش از ارسال به شما نشان داده می‌شود.</div><label>سیم‌کارت هزینه</label><select id="smsSimSlot"><option value="">— انتخاب نشده —</option>${sims.map(x=>`<option value="${esc(x.slot)}"${sim&&String(sim.slot)===String(x.slot)?' selected':''}>${esc(x.name||('سیم‌کارت '+(Number(x.slot)+1)))}${x.number?' · '+esc(x.number):''}</option>`).join('')}</select><label>نام نمایشی (اختیاری، مثلاً ایرانسل)</label><input id="smsSimLabel" value="${esc(sim&&sim.label||'')}"><label>تعرفهٔ هر بخش پیامک (تومان)</label><input id="smsSimPrice" inputmode="numeric" value="${sim&&sim.price?esc(sim.price):''}" placeholder="مثلاً ۱۲۰"></div>`;
+ sheet('تنظیمات پیامک',simHtml+tpl.map((t,i)=>`<label>نام الگو</label><input data-n="${i}" value="${esc(t.name)}"><label>متن (می‌توانی از {name} {date} {time} {amount} استفاده کنی)</label><textarea data-x="${i}">${esc(t.text)}</textarea>`).join('')+'<div class="row"><button class="btn g" id="sv">ذخیره</button><button class="btn sec g" id="ad">+ الگوی جدید</button></div>',(b,c)=>{
   const rd=()=>tpl.map((t,i)=>({id:t.id,name:$(`[data-n="${i}"]`,b).value||'بدون نام',text:$(`[data-x="${i}"]`,b).value}));
-  $('#sv',b).onclick=()=>{Store.setCfg('tpl',rd());toast('ذخیره شد');c();App.refresh()};
-  $('#ad',b).onclick=()=>{Store.setCfg('tpl',[...rd(),{id:'t'+Date.now(),name:'الگوی جدید',text:''}]);c();smsSettings()}})}
+  const saveSim=()=>{const v=$('#smsSimSlot',b).value,price=Number(smsDigits($('#smsSimPrice',b).value).replace(/[^\d.]/g,''))||0;Store.setCfg('smsSim',v===''?null:{slot:Number(v),label:$('#smsSimLabel',b).value.trim(),price})};
+  $('#sv',b).onclick=()=>{const v=$('#smsSimSlot',b).value,price=Number(smsDigits($('#smsSimPrice',b).value).replace(/[^\d.]/g,''))||0;if(v!==''&&price<=0)return toast('تعرفهٔ هر بخش پیامک را وارد کنید');saveSim();Store.setCfg('tpl',rd());toast('ذخیره شد');c();App.refresh()};
+  $('#ad',b).onclick=()=>{saveSim();Store.setCfg('tpl',[...rd(),{id:'t'+Date.now(),name:'الگوی جدید',text:''}]);c();smsSettings()}})}
 function smsListEditorSheet(id){const lists=Store.cfg('smsLists',[]),old=lists.find(x=>String(x.id)===String(id)),people=Store.all('people').filter(p=>p.type!=='secretary'),selected=new Set((old?.members||[]).map(String)),rows=people.map(p=>`<button type="button" class="member-select${selected.has(String(p.id))?' selected':''}" data-sms-member="${esc(p.id)}" data-sms-gender="${esc(p.gender||'')}" data-sms-search="${esc((politeName(p)+' '+(p.phone||'')+' '+(p.gender==='male'?'آقا':p.gender==='female'?'خانم':'')).toLowerCase())}" aria-pressed="${selected.has(String(p.id))}"><span class="member-select-mark">${selected.has(String(p.id))?'✓':''}</span><span class="g"><b>${esc(politeName(p))}</b><span class="mut">${esc(TYPES[p.type]||'')} · ${esc(p.gender==='male'?'آقا':p.gender==='female'?'خانم':'—')} · ${esc(p.phone||'')}</span></span></button>`).join('');sheet(old?'ویرایش فهرست پیامکی':'فهرست پیامکی جدید',`<label>نام فهرست</label><input id="smsListName" value="${esc(old?.name||'')}" placeholder="مثلاً مراجعان دورهٔ پاییز"><label>فیلتر جنسیت</label><select id="smsListGenderFilter"><option value="">همه</option><option value="male">فقط آقا</option><option value="female">فقط خانم</option></select><label>جست‌وجوی عضو</label><input id="smsListSearch" type="search" placeholder="نام، تلفن یا آقا/خانم"><div class="card" id="smsListMembers">${rows||'<div class="empty">شخصی در دسترس نیست.</div>'}</div><div class="mut" id="smsListCount">${fa(selected.size)} نفر انتخاب شده</div><div class="row"><button class="btn g" id="saveSmsList">ذخیرهٔ فهرست</button>${old?'<button class="btn bad" id="deleteSmsList">حذف فهرست</button>':''}</div>`,(b,c)=>{const apply=()=>{const q=$('#smsListSearch',b).value.trim().toLowerCase();const g=$('#smsListGenderFilter',b)?.value||'';$$('[data-sms-member]',b).forEach(x=>{const matchQ=!q||(x.dataset.smsSearch||'').includes(q);const matchG=!g||(x.dataset.smsGender||'')===g;x.hidden=!(matchQ&&matchG)})};$('#smsListSearch',b).oninput=apply;const gf=$('#smsListGenderFilter',b);if(gf)gf.onchange=apply;$$('[data-sms-member]',b).forEach(btn=>btn.onclick=()=>{const key=String(btn.dataset.smsMember);if(selected.has(key))selected.delete(key);else selected.add(key);const yes=selected.has(key);btn.classList.toggle('selected',yes);btn.setAttribute('aria-pressed',String(yes));$('.member-select-mark',btn).textContent=yes?'✓':'';$('#smsListCount',b).textContent=fa(selected.size)+' نفر انتخاب شده'});$('#saveSmsList',b).onclick=()=>{const name=$('#smsListName',b).value.trim();if(!name)return toast('نام فهرست را وارد کنید.');const next={id:old?.id||'smslist-'+Date.now(),name,members:[...selected]};Store.setCfg('smsLists',old?lists.map(x=>String(x.id)===String(old.id)?next:x):[...lists,next]);toast('فهرست پیامکی ذخیره شد.');c();App.refresh()};const del=$('#deleteSmsList',b);if(del)del.onclick=()=>confirmSheet('فهرست پیامکی حذف شود؟ سوابق ارسال حذف نمی‌شوند.',()=>{Store.setCfg('smsLists',lists.filter(x=>String(x.id)!==String(old.id)));c();App.refresh()})})}
 function smsTab(el){const tpl=Store.cfg('tpl',DEF_TPL),ppl=Store.all('people'),gs=Store.all('groups'),lists=Store.cfg('smsLists',[]),to=tpl.map(t=>[t.id,t.name]),onlineDraft=Store.cfg('onlineSessionSmsDraft',null),lastBulk=Store.cfg('smsLastBulk',null);
  const categories=[['t:client','همهٔ مراجعان'],['t:client:male','مراجعان آقا'],['t:client:female','مراجعان خانم'],['t:therapist','همهٔ درمانگران'],['t:secretary','همهٔ منشی‌ها'],...gs.map(g=>['g:'+g.id,`${g.kind||'گروه'}: ${g.name}`]),...lists.map(l=>['l:'+l.id,'فهرست: '+l.name])],filters=[['all','همهٔ مراجعان'],['male','فقط آقا'],['female','فقط خانم'],['debt','مراجعان دارای بدهی'],['installment','دارندگان قسط/چک سررسیدشده'],['phone','دارای شمارهٔ تلفن'],['no-phone','بدون شمارهٔ تلفن']];
@@ -3149,7 +3172,7 @@ function smsTab(el){const tpl=Store.cfg('tpl',DEF_TPL),ppl=Store.all('people'),g
  $('#c1',el).onclick=()=>{const p=P();if(p&&p.phone)location.href='tel:'+p.phone;else toast('شماره ندارد')};
  $('#sg',el).onchange=paint;$('#smsClientFilter',el).onchange=paint;
  $('#s2',el).onclick=()=>{const text=$('#x2',el).value;if(!text.trim())return toast('متن پیام خالی است');smsSend(recipients().map(p=>({id:p.id,name:p.name,phone:p.phone,gender:p.gender,amount:Math.max(0,bal(p.id))})),text,true,{onDone:paintHistory})};
- $('#newSmsList',el).onclick=()=>smsListEditorSheet('');$('#ss',el).onclick=smsSettings;paint();paintHistory();
+ $('#newSmsList',el).onclick=()=>smsListEditorSheet('');$('#ss',el).onclick=smsSettings;paint();paintHistory();window.__smsHistRepaint=()=>{const h=$('#smsxHist',el);if(h&&h.isConnected)paintHistory()};
 }
 function apptAt(a){const[y,m,d]=jp(a.date),[g,mm,dd]=j2g(y,m,d),[h,mi]=String(a.time||'0:0').split(':').map(Number);return new Date(g,mm-1,dd,h,mi)}
 function dueRem(){const lead=+Store.cfg('lead',1440)*6e4,n=Date.now();return Store.all('appts').filter(a=>!a.rem&&apptAt(a)>n&&apptAt(a)-n<=lead)}
