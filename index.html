@@ -1838,7 +1838,7 @@ const Store=(()=>{const mem={};const seed={
   const base=CenterHub.current()==='center_main'?seed[t]:undefined;return mem[slot(t)]=JSON.parse(JSON.stringify(base||(t==='cfg'?{}:[])));
  };
  const sv=(t,v)=>save(t,v);
- return{hydrate(t,v){mem[slot(t)]=v},clearMem(){Object.keys(mem).forEach(k=>delete mem[k])},hasMem(t){return Object.prototype.hasOwnProperty.call(mem,slot(t))},cloudMode,all:ld,add(t,o){if(t==='people'&&o?.type==='client'&&!(Number.isInteger(+o.fileNo)&&+o.fileNo>0)){const max=ld('people').filter(x=>x.type==='client').reduce((z,x)=>Math.max(z,+x.fileNo||0),0);o={...o,fileNo:max+1}}o.id=Date.now()+Math.random().toString(36).slice(2,5);sv(t,[o,...ld(t)]);return o},
+ return{hydrate(t,v){mem[slot(t)]=v},clearMem(){Object.keys(mem).forEach(k=>delete mem[k])},hasMem(t){return Object.prototype.hasOwnProperty.call(mem,slot(t))},cloudMode,all:ld,add(t,o){if(t==='people'&&o?.type==='client'&&!(Number.isInteger(+o.fileNo)&&+o.fileNo>0)){const nums=new Set(ld('people').filter(x=>x.type==='client').map(x=>+x.fileNo).filter(n=>Number.isInteger(n)&&n>0));let max=0;nums.forEach(n=>{if(n>max)max=n});o={...o,fileNo:max+1}}o.id=Date.now()+Math.random().toString(36).slice(2,5);sv(t,[o,...ld(t)]);return o},
  del(t,id){sv(t,ld(t).filter(x=>x.id!==id))},upd(t,id,p){sv(t,ld(t).map(x=>x.id===id?{...x,...p}:x))},
  cfg(k,d){const o=ld('cfg');const v=Array.isArray(o)?undefined:o[k];return v===undefined?d:v},setCfg(k,v){const o=ld('cfg');sv('cfg',{...(Array.isArray(o)?{}:o),[k]:v})},refresh(t){if(cloudMode()){if(window.ClinicCloud.repaint)window.ClinicCloud.repaint(t);return}if(t!=null)delete mem[slot(t)];else Object.keys(mem).forEach(k=>delete mem[k])},dump(){return Object.fromEntries(['people','tx','appts','att','groups','events','notifs','sms','ovr','cfg'].map(t=>[t,ld(t)]))},
  load(o){
@@ -1848,8 +1848,29 @@ const Store=(()=>{const mem={};const seed={
  }
 };})();
 window.addEventListener('storage',e=>{if(window.ClinicCloud&&window.ClinicCloud.active)return;if(e.key&&e.key.startsWith('clinic_'))Store.refresh(e.key.slice(7));else if(!e.key)Store.refresh()});
-function ensureClientFileNumbers(){const clients=Store.all('people').filter(p=>p.type==='client');let max=clients.reduce((z,p)=>Math.max(z,+p.fileNo||0),0),seen=new Set();for(const p of clients){const n=+p.fileNo;if(Number.isInteger(n)&&n>0&&!seen.has(n)){seen.add(n);continue}do{max++}while(seen.has(max));Store.upd('people',p.id,{fileNo:max});seen.add(max)}}
+function nextClientFileNo(){
+  const nums=new Set(Store.all('people').filter(p=>p.type==='client').map(p=>+p.fileNo).filter(n=>Number.isInteger(n)&&n>0));
+  let max=0;nums.forEach(n=>{if(n>max)max=n});
+  return max+1;
+}
+function ensureClientFileNumbers(){
+  const clients=Store.all('people').filter(p=>p.type==='client');
+  const used=new Set();
+  for(const p of clients){
+    const n=+p.fileNo;
+    if(Number.isInteger(n)&&n>0)used.add(n);
+  }
+  let max=0;used.forEach(n=>{if(n>max)max=n});
+  for(const p of clients){
+    const n=+p.fileNo;
+    if(Number.isInteger(n)&&n>0)continue;
+    max+=1;
+    Store.upd('people',p.id,{fileNo:max});
+    used.add(max);
+  }
+}
 ensureClientFileNumbers();
+
 
 const pname=id=>(Store.all('people').find(p=>p.id===id)||{}).name||'—';
 const politeName=p=>{if(!p)return '—';const n=typeof p==='object'? (p.name||'—'):pname(p);const g=typeof p==='object'?p.gender:(Store.all('people').find(x=>String(x.id)===String(p))||{}).gender;return (g==='male'?'آقای ':g==='female'?'خانم ':'')+n;};
@@ -2294,10 +2315,82 @@ $('#bookingDeposit',b).onchange=()=>{$('#bookingDepositNote',b).textContent=+$('
 }
 function planClientAppointment(cid){appointmentBookingSheet({cid,date:T().key})}
 function normalizeIranianMobile(raw){let d=String(raw||'').replace(/[۰-۹٠-٩]/g,x=>{const a='۰۱۲۳۴۵۶۷۸۹'.indexOf(x);return String(a>=0?a:'٠١٢٣٤٥٦٧٨٩'.indexOf(x))}).replace(/\D/g,'');if(d.startsWith('0098'))d='0'+d.slice(4);else if(d.startsWith('98')&&d.length===12)d='0'+d.slice(2);else if(d.length===10&&d[0]==='9')d='0'+d;return /^09\d{9}$/.test(d)?d:''}
-function personForm(p){const fields=[{k:'name',l:'نام',req:1,v:p&&p.name},{k:'phone',l:'شمارهٔ موبایل کامل (۱۱ رقم)',t:'tel',req:1,v:p&&p.phone},{k:'gender',l:'جنسیت',t:'select',o:[['','انتخاب کنید'],['male','آقا'],['female','خانم']],req:1,v:p&&p.gender}];form(p?'ویرایش شخص':'مراجع جدید',fields,v=>{v.phone=normalizeIranianMobile(v.phone);if(!v.phone)return toast('شمارهٔ موبایل باید کامل و ۱۱ رقمی باشد؛ نمونه: ۰۹۱۲۳۴۵۶۷۸۹.'),false;if(!v.gender)return toast('جنسیت را انتخاب کنید.'),false;if(p)Store.upd('people',p.id,v);else Store.add('people',{...v,type:'client'});toast('ذخیره شد');App.refresh()})}
+function personForm(p){
+  if(p){
+    const fields=[{k:'name',l:'نام',req:1,v:p.name},{k:'phone',l:'شمارهٔ موبایل کامل (۱۱ رقم)',t:'tel',req:1,v:p.phone},{k:'gender',l:'جنسیت',t:'select',o:[['','انتخاب کنید'],['male','آقا'],['female','خانم']],req:1,v:p.gender}];
+    form('ویرایش شخص',fields,v=>{
+      v.phone=normalizeIranianMobile(v.phone);
+      if(!v.phone)return toast('شمارهٔ موبایل باید کامل و ۱۱ رقمی باشد؛ نمونه: ۰۹۱۲۳۴۵۶۷۸۹.'),false;
+      if(!v.gender)return toast('جنسیت را انتخاب کنید.'),false;
+      Store.upd('people',p.id,v);toast('ذخیره شد');App.refresh();
+    });
+    return;
+  }
+  const html=`
+    <label>نوع پرونده</label>
+    <div class="seg" id="caseTypeSeg" style="margin-bottom:12px">
+      <button type="button" data-v="individual" class="on">فردی</button>
+      <button type="button" data-v="couple">زوجی</button>
+    </div>
+    <div id="indFields">
+      <label>نام</label><input data-k="name" type="text">
+      <label>شمارهٔ موبایل کامل (۱۱ رقم)</label><input data-k="phone" type="tel" inputmode="numeric" placeholder="۰۹۱۲۳۴۵۶۷۸۹">
+      <label>جنسیت</label>
+      <select data-k="gender"><option value="">انتخاب کنید</option><option value="male">آقا</option><option value="female">خانم</option></select>
+    </div>
+    <div id="cplFields" hidden>
+      <h4 style="margin:8px 0 6px">نفر اول</h4>
+      <label>نام نفر اول</label><input data-k="name1" type="text">
+      <label>شمارهٔ موبایل نفر اول</label><input data-k="phone1" type="tel" inputmode="numeric" placeholder="۰۹۱۲۳۴۵۶۷۸۹">
+      <label>جنسیت نفر اول</label>
+      <select data-k="gender1"><option value="">انتخاب کنید</option><option value="male">آقا</option><option value="female">خانم</option></select>
+      <h4 style="margin:12px 0 6px">نفر دوم</h4>
+      <label>نام نفر دوم</label><input data-k="name2" type="text">
+      <label>شمارهٔ موبایل نفر دوم</label><input data-k="phone2" type="tel" inputmode="numeric" placeholder="۰۹۱۲۳۴۵۶۷۸۹">
+      <label>جنسیت نفر دوم</label>
+      <select data-k="gender2"><option value="">انتخاب کنید</option><option value="male">آقا</option><option value="female">خانم</option></select>
+      <div class="mut" style="margin-top:8px">هر دو نفر با یک شماره پرونده ثبت می‌شوند و هر دو در فهرست مراجعین قرار می‌گیرند.</div>
+    </div>
+    <button class="btn big" id="ok">ذخیره</button>`;
+  sheet('مراجع جدید',html,(b,c)=>{
+    let caseType='individual';
+    const sync=()=>{
+      $('#indFields',b).hidden=caseType!=='individual';
+      $('#cplFields',b).hidden=caseType!=='couple';
+      $$('#caseTypeSeg button',b).forEach(btn=>btn.classList.toggle('on',btn.dataset.v===caseType));
+    };
+    $$('#caseTypeSeg button',b).forEach(btn=>btn.onclick=()=>{caseType=btn.dataset.v;sync()});
+    sync();
+    $('#ok',b).onclick=()=>{
+      const val=k=>( $(`[data-k="${k}"]`,b)?.value||'').trim();
+      if(caseType==='individual'){
+        const name=val('name'),phone=normalizeIranianMobile(val('phone')),gender=val('gender');
+        if(!name)return toast('«نام» را پر کن');
+        if(!phone)return toast('شمارهٔ موبایل باید کامل و ۱۱ رقمی باشد؛ نمونه: ۰۹۱۲۳۴۵۶۷۸۹.');
+        if(!gender)return toast('جنسیت را انتخاب کنید.');
+        Store.add('people',{name,phone,gender,type:'client',caseType:'individual'});
+        toast('ذخیره شد');c();App.refresh();return;
+      }
+      const name1=val('name1'),phone1=normalizeIranianMobile(val('phone1')),gender1=val('gender1');
+      const name2=val('name2'),phone2=normalizeIranianMobile(val('phone2')),gender2=val('gender2');
+      if(!name1)return toast('نام نفر اول را پر کنید');
+      if(!phone1)return toast('شمارهٔ موبایل نفر اول باید کامل و ۱۱ رقمی باشد');
+      if(!gender1)return toast('جنسیت نفر اول را انتخاب کنید');
+      if(!name2)return toast('نام نفر دوم را پر کنید');
+      if(!phone2)return toast('شمارهٔ موبایل نفر دوم باید کامل و ۱۱ رقمی باشد');
+      if(!gender2)return toast('جنسیت نفر دوم را انتخاب کنید');
+      const fileNo=nextClientFileNo();
+      const p1=Store.add('people',{name:name1,phone:phone1,gender:gender1,type:'client',caseType:'couple',fileNo});
+      const p2=Store.add('people',{name:name2,phone:phone2,gender:gender2,type:'client',caseType:'couple',fileNo,partnerId:p1.id});
+      Store.upd('people',p1.id,{partnerId:p2.id});
+      toast('پروندهٔ زوجی با شمارهٔ '+fa(fileNo)+' ثبت شد');
+      c();App.refresh();
+    };
+  });
+}
 function peopleTab(el){let query='',ft='';
- el.insertAdjacentHTML('beforeend',`<button class="btn big" id="np">+ مراجع جدید</button><div class="card"><div class="mut">ترتیب فهرست: شمارهٔ پرونده، از کم به زیاد</div><div class="bar"><select id="ft" style="margin:0;width:42%"><option value="">همهٔ مراجعان</option><option value="debtor">بدهکاران</option><option value="installment">دارندگان قسط یا چک معوق</option><option value="male">آقا</option><option value="female">خانم</option></select><input placeholder="جست‌وجو میان مراجعان…" id="q"></div></div><div class="lst"></div>`);
- const paint=()=>{const ledger=Store.all('tx'),rows=Store.all('people').filter(p=>p.type==='client'&&(ft==='debtor'?bal(p.id)>0:ft==='installment'?ledger.some(t=>String(t.pid)===String(p.id)&&['inst','check'].includes(t.kind)&&t.status==='due'):ft==='male'?p.gender==='male':ft==='female'?p.gender==='female':true)&&(!query||(p.name+(p.phone||'')+(p.gender==='male'?'آقا':p.gender==='female'?'خانم':'')).toLowerCase().includes(query.toLowerCase()))).sort((a,b)=>{const x=Number(a.fileNo),y=Number(b.fileNo);return(Number.isFinite(x)?x:Number.MAX_SAFE_INTEGER)-(Number.isFinite(y)?y:Number.MAX_SAFE_INTEGER)||String(a.name||'').localeCompare(String(b.name||''),'fa')});$('.lst',el).innerHTML=rows.length?rows.map(p=>{const balance=bal(p.id);const gLabel=p.gender==='male'?'آقا':p.gender==='female'?'خانم':'—';return `<div class="card row" data-id="${esc(p.id)}" style="cursor:pointer"><div class="g"><b>${esc(politeName(p))}</b>${ctBtns(p.id)}<div class="mut">پروندهٔ شمارهٔ ${fa(p.fileNo||'—')} · ${esc(gLabel)} · ${esc(p.phone||'')}</div></div>${balance?`<b class="${balance>0?'bad':'ok'}">${money(Math.abs(balance))}</b>`:''}</div>`}).join(''):'<div class="empty">مراجعی پیدا نشد.</div>';$$('.lst .card',el).forEach(card=>card.onclick=()=>personSheet(card.dataset.id,{del:false,txdel:false}))};
+ el.insertAdjacentHTML('beforeend',`<button class="btn big" id="np">+ مراجع جدید</button><div class="card"><div class="mut">ترتیب فهرست: شمارهٔ پرونده، از کم به زیاد · پروندهٔ زوجی دو نفر با یک شماره</div><div class="bar"><select id="ft" style="margin:0;width:42%"><option value="">همهٔ مراجعان</option><option value="individual">فردی</option><option value="couple">زوجی</option><option value="debtor">بدهکاران</option><option value="installment">دارندگان قسط یا چک معوق</option><option value="male">آقا</option><option value="female">خانم</option></select><input placeholder="جست‌وجو میان مراجعان…" id="q"></div></div><div class="lst"></div>`);
+ const paint=()=>{const ledger=Store.all('tx'),rows=Store.all('people').filter(p=>p.type==='client'&&(ft==='individual'?p.caseType!=='couple':ft==='couple'?p.caseType==='couple':ft==='debtor'?bal(p.id)>0:ft==='installment'?ledger.some(t=>String(t.pid)===String(p.id)&&['inst','check'].includes(t.kind)&&t.status==='due'):ft==='male'?p.gender==='male':ft==='female'?p.gender==='female':true)&&(!query||(p.name+(p.phone||'')+(p.gender==='male'?'آقا':p.gender==='female'?'خانم':'')).toLowerCase().includes(query.toLowerCase()))).sort((a,b)=>{const x=Number(a.fileNo),y=Number(b.fileNo);return(Number.isFinite(x)?x:Number.MAX_SAFE_INTEGER)-(Number.isFinite(y)?y:Number.MAX_SAFE_INTEGER)||String(a.name||'').localeCompare(String(b.name||''),'fa')});$('.lst',el).innerHTML=rows.length?rows.map(p=>{const balance=bal(p.id);const gLabel=p.gender==='male'?'آقا':p.gender==='female'?'خانم':'—';const partner=p.partnerId?Store.all('people').find(x=>String(x.id)===String(p.partnerId)):null;const caseLabel=p.caseType==='couple'?` · زوجی${partner?' با '+esc(partner.name):''}`:' · فردی';return `<div class="card row" data-id="${esc(p.id)}" style="cursor:pointer"><div class="g"><b>${esc(politeName(p))}</b>${ctBtns(p.id)}<div class="mut">پروندهٔ شمارهٔ ${fa(p.fileNo||'—')}${caseLabel} · ${esc(gLabel)} · ${esc(p.phone||'')}</div></div>${balance?`<b class="${balance>0?'bad':'ok'}">${money(Math.abs(balance))}</b>`:''}</div>`}).join(''):'<div class="empty">مراجعی پیدا نشد.</div>';$$('.lst .card',el).forEach(card=>card.onclick=()=>personSheet(card.dataset.id,{del:false,txdel:false}))};
  $('#q',el).oninput=e=>{query=e.target.value;paint()};$('#ft',el).onchange=e=>{ft=e.target.value;paint()};$('#np',el).onclick=()=>personForm();paint();
 }
 
