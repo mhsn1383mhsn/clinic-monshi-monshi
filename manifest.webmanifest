@@ -1,5 +1,5 @@
 {
-  "id": "/",
+  "id": "/secretary/",
   "name": "پنل منشی کلینیک",
   "short_name": "منشی",
   "description": "مراجعان، برنامهٔ روز، ثبت جلسه، هزینه و پرداخت",
@@ -13,30 +13,22 @@
     "minimal-ui"
   ],
   "orientation": "portrait",
-  "background_color": "#061230",
-  "theme_color": "#0A4D8C",
+  "background_color": "#0E181E",
+  "theme_color": "#2A1F0E",
   "categories": [
     "business",
     "productivity"
   ],
   "icons": [
     {
-      "src": "icons/icon-180.png",
-      "sizes": "180x180",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
       "src": "icons/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any"
+      "type": "image/png"
     },
     {
       "src": "icons/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any"
+      "type": "image/png"
     },
     {
       "src": "icons/icon-512-maskable.png",
